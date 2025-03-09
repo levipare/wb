@@ -9,6 +9,15 @@ window {
   background: #0c0c0c;
 }
 
+#workspaces label {
+  padding: 2px 7px;
+  color: #5a5a5a;
+}
+
+#workspaces label.active {
+  color: #bbbbbb;
+}
+
 #datetime {
   padding: 2px 1em;
 }

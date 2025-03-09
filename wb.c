@@ -13,17 +13,21 @@
 // consider a module system?
 
 // main bar components
-GtkWidget *bar;
-GtkWidget *left;
-GtkWidget *center;
-GtkWidget *right;
+GtkCenterBox *bar;
+GtkBox *left;
+GtkBox *center;
+GtkBox *right;
 
 // info widgets
-GtkWidget *datetime;
-pthread_t datetime_thread;
+GtkBox *workspaces;
+char workspace_names[10][64] = {"1", "2", "3", "4", "5",
+                                "6", "7", "8", "9", "10"};
 
-GtkWidget *activewin;
+GtkLabel *activewin;
 pthread_t activewin_thread;
+
+GtkLabel *datetime;
+pthread_t datetime_thread;
 
 static int socket_create(const char *socket_path) {
     // create file descriptor for use with unix sockets
@@ -90,20 +94,45 @@ static void *watch_activewin(void *user_data) {
 
     int socket_fd = socket_create(socket_path);
 
-    char buf[72] = {0};
+    char event[256] = {0};
+    char curtext[72] = {0};
     size_t nread;
-    while ((nread = socket_readline(socket_fd, buf, sizeof(buf))) > 0) {
-        // add ellipses to truncate
-        buf[sizeof(buf) - 4] = '.';
-        buf[sizeof(buf) - 3] = '.';
-        buf[sizeof(buf) - 2] = '.';
+    while ((nread = socket_readline(socket_fd, event, sizeof(event))) > 0) {
+        // printf("%s\n", event); // log hyprland events
 
         // if its an activewindow event
-        if (strncmp(buf, "activewindow>>", strlen("activewindow>>")) == 0) {
-            // printf("'%s'\n", buf);
-            char *comma_loc = strchr(buf, ',');
-            if (comma_loc)
-                gtk_label_set_text(label, comma_loc + 1);
+        if (strncmp(event, "activewindow>>", strlen("activewindow>>")) == 0) {
+            // copy title of active window
+            char *comma_loc = strchr(event, ',');
+            strncpy(curtext, comma_loc + 1, sizeof(curtext) - 1);
+
+            // add ellipses to truncate
+            curtext[sizeof(curtext) - 4] = '.';
+            curtext[sizeof(curtext) - 3] = '.';
+            curtext[sizeof(curtext) - 2] = '.';
+
+            gtk_label_set_text(label, curtext);
+        } else if (strncmp(event, "workspacev2>>", strlen("workspacev2>>")) ==
+                   0) {
+            size_t loc = strcspn(event, ">>");
+            char *comma_loc = strchr(&event[loc], ',');
+            event[loc] = '\0';
+
+            // subtract one since hyrpland ID's are 1 indexed
+            // and we store workspace names 0 indexed
+            int ws_id = atoi(&event[loc + 2]) - 1;
+            char *ws_name = comma_loc + 1;
+
+            GtkWidget *child =
+                gtk_widget_get_first_child(GTK_WIDGET(workspaces));
+            for (int i = 0; child != NULL; i++) {
+                if (i == ws_id) {
+                    gtk_widget_add_css_class(child, "active");
+                } else {
+                    gtk_widget_remove_css_class(child, "active");
+                }
+                child = gtk_widget_get_next_sibling(child);
+            }
         }
     }
 
@@ -142,34 +171,43 @@ static void *watch_datetime(void *data) {
 static void make_bar() {
     // CONTAINERS
     // main bar
-    bar = gtk_center_box_new();
-    gtk_widget_set_name(bar, "wb");
+    bar = GTK_CENTER_BOX(gtk_center_box_new());
+    gtk_widget_set_name(GTK_WIDGET(bar), "wb");
 
     // left box
-    left = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 0);
-    gtk_widget_set_name(left, "left");
-    gtk_center_box_set_start_widget(GTK_CENTER_BOX(bar), left);
+    left = GTK_BOX(gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 0));
+    gtk_widget_set_name(GTK_WIDGET(left), "left");
+    gtk_center_box_set_start_widget(GTK_CENTER_BOX(bar), GTK_WIDGET(left));
 
     // center box
-    center = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 0);
-    gtk_widget_set_name(center, "center");
-    gtk_center_box_set_center_widget(GTK_CENTER_BOX(bar), center);
+    center = GTK_BOX(gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 0));
+    gtk_widget_set_name(GTK_WIDGET(center), "center");
+    gtk_center_box_set_center_widget(GTK_CENTER_BOX(bar), GTK_WIDGET(center));
 
     // right box
-    right = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 0);
-    gtk_widget_set_name(right, "right");
-    gtk_center_box_set_end_widget(GTK_CENTER_BOX(bar), right);
+    right = GTK_BOX(gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 0));
+    gtk_widget_set_name(GTK_WIDGET(right), "right");
+    gtk_center_box_set_end_widget(GTK_CENTER_BOX(bar), GTK_WIDGET(right));
 
     // WIDGETS
+    workspaces = GTK_BOX(gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 0));
+    gtk_widget_set_name(GTK_WIDGET(workspaces), "workspaces");
+    for (int i = 0; i < sizeof(workspace_names) / sizeof(workspace_names[0]);
+         ++i) {
+        GtkLabel *ws_label = GTK_LABEL(gtk_label_new(workspace_names[i]));
+        gtk_box_append(workspaces, GTK_WIDGET(ws_label));
+    }
+    gtk_box_append(left, GTK_WIDGET(workspaces));
+
     // active window
-    activewin = gtk_label_new("");
-    gtk_box_append(GTK_BOX(center), activewin);
+    activewin = GTK_LABEL(gtk_label_new(""));
+    gtk_box_append(GTK_BOX(center), GTK_WIDGET(activewin));
     pthread_create(&activewin_thread, NULL, watch_activewin, activewin);
 
     // date & time
-    datetime = gtk_label_new("");
-    gtk_widget_set_name(datetime, "datetime");
-    gtk_box_append(GTK_BOX(right), datetime);
+    datetime = GTK_LABEL(gtk_label_new(""));
+    gtk_widget_set_name(GTK_WIDGET(datetime), "datetime");
+    gtk_box_append(GTK_BOX(right), GTK_WIDGET(datetime));
     pthread_create(&datetime_thread, NULL, watch_datetime, datetime);
 }
 
@@ -197,7 +235,7 @@ static void activate(GtkApplication *app, void *data) {
     g_object_unref(provider);
 
     // set the primary child of the window
-    gtk_window_set_child(gtk_window, bar);
+    gtk_window_set_child(gtk_window, GTK_WIDGET(bar));
     gtk_window_present(gtk_window);
 }
 
