@@ -3,18 +3,12 @@ window {
 }
 
 #wb {
-  font-family: monospace;
+  font-family: JetBrainsMono Nerd Font;
   font-size: 14px;
-  min-height: 20px;
   color: #bbbbbb;
   background: #0c0c0c;
 }
 
-
-#left {
-  margin-left: 1rem;
-}
-
-#right {
-  margin-right: 1rem;
+#datetime {
+  padding: 2px 1em;
 }
