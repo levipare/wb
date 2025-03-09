@@ -1,6 +1,3 @@
-/*
-gcc wb.c -o wb --std=c99 $(pkg-config --cflags --libs gtk4 gtk4-layer-shell-0)
-*/
 #include <gtk/gtk.h>
 #include <pthread.h>
 #include <stdio.h>
