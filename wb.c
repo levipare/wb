@@ -1,4 +1,6 @@
-// gcc --std=c99 main.c $(pkg-config --cflags --libs gtk4 gtk4-layer-shell-0)
+/*
+gcc wb.c -o wb --std=c99 $(pkg-config --cflags --libs gtk4 gtk4-layer-shell-0)
+*/
 #include <gtk/gtk.h>
 #include <pthread.h>
 #include <stdio.h>
@@ -26,7 +28,7 @@ pthread_t datetime_thread;
 GtkWidget *activewin;
 pthread_t activewin_thread;
 
-static int ipc_create(const char *socket_path) {
+static int socket_create(const char *socket_path) {
     // create file descriptor for use with unix sockets
     int socket_fd = socket(AF_UNIX, SOCK_STREAM, 0);
     if (socket_fd == -1) {
@@ -48,21 +50,22 @@ static int ipc_create(const char *socket_path) {
     return socket_fd;
 }
 
-static int ipc_readline(int socket_fd, char *buf, size_t size) {
+static int socket_readline(int socket_fd, char *buf, size_t size) {
     size_t bytes_read = 0;
     while (1) {
-        // TODO: handle the case when a line exceeds the buffer
-        // we should stop writing to the buffer once full
-        // but continue reading until a newline
-        ssize_t nread = recv(
-            socket_fd, bytes_read < size - 1 ? buf + bytes_read : NULL, 1, 0);
+        char c;
+        ssize_t nread = recv(socket_fd, &c, 1, 0);
 
         if (nread == -1) {
             perror("Error while calling recv on socket");
             exit(1);
         }
 
-        if (buf[bytes_read] == '\n') {
+        if (bytes_read < size - 1) {
+            buf[bytes_read] = c;
+        }
+
+        if (c == '\n') {
             buf[bytes_read] = '\0';
             break;
         }
@@ -88,15 +91,22 @@ static void *watch_activewin(void *user_data) {
     snprintf(socket_path, sizeof(socket_path), "%s/hypr/%s/.socket2.sock",
              xdg_runtime_dir, instance_signature);
 
-    int socket_fd = ipc_create(socket_path);
+    int socket_fd = socket_create(socket_path);
 
-    char buf[256] = {0};
+    char buf[72] = {0};
     size_t nread;
-    while ((nread = ipc_readline(socket_fd, buf, sizeof(buf))) > 0) {
+    while ((nread = socket_readline(socket_fd, buf, sizeof(buf))) > 0) {
+        // add ellipses to truncate
+        buf[sizeof(buf) - 4] = '.';
+        buf[sizeof(buf) - 3] = '.';
+        buf[sizeof(buf) - 2] = '.';
+
         // if its an activewindow event
         if (strncmp(buf, "activewindow>>", strlen("activewindow>>")) == 0) {
-            char *value_start = strchr(buf, ',') + 1;
-            gtk_label_set_text(label, value_start);
+            // printf("'%s'\n", buf);
+            char *comma_loc = strchr(buf, ',');
+            if (comma_loc)
+                gtk_label_set_text(label, comma_loc + 1);
         }
     }
 
@@ -121,7 +131,7 @@ static void *watch_datetime(void *data) {
         gtk_label_set_text(label, time_string);
 
         // Get current time with nanosecond precision
-        clock_gettime(CLOCK_REALTIME, &ts);
+        clock_gettime(CLOCK_MONOTONIC, &ts);
 
         // Sleep until the next second boundary
         long sleep_time = 1000000000L - ts.tv_nsec;
@@ -155,12 +165,13 @@ static void make_bar() {
 
     // WIDGETS
     // active window
-    activewin = gtk_label_new(NULL);
+    activewin = gtk_label_new("");
     gtk_box_append(GTK_BOX(center), activewin);
     pthread_create(&activewin_thread, NULL, watch_activewin, activewin);
 
     // date & time
-    datetime = gtk_label_new(NULL);
+    datetime = gtk_label_new("");
+    gtk_widget_set_name(datetime, "datetime");
     gtk_box_append(GTK_BOX(right), datetime);
     pthread_create(&datetime_thread, NULL, watch_datetime, datetime);
 }
@@ -181,7 +192,7 @@ static void activate(GtkApplication *app, void *data) {
 
     // load css for application
     GtkCssProvider *provider = gtk_css_provider_new();
-    gtk_css_provider_load_from_file(provider, g_file_new_for_path("wb.css"));
+    gtk_css_provider_load_from_file(provider, g_file_new_for_path("./wb.css"));
 
     gtk_style_context_add_provider_for_display(
         gdk_display_get_default(), GTK_STYLE_PROVIDER(provider),
@@ -194,9 +205,8 @@ static void activate(GtkApplication *app, void *data) {
 }
 
 int main(int argc, char **argv) {
-
-    GtkApplication *app = gtk_application_new("io.github.levipare.wb",
-                                              G_APPLICATION_DEFAULT_FLAGS);
+    GtkApplication *app =
+        gtk_application_new("io.github.levipare.wb", G_APPLICATION_NON_UNIQUE);
     g_signal_connect(app, "activate", G_CALLBACK(activate), NULL);
     int status = g_application_run(G_APPLICATION(app), argc, argv);
     g_object_unref(app);
